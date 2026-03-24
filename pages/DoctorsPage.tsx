@@ -1,22 +1,74 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { DOCTORS } from '../constants';
 import DoctorCard from '../components/DoctorCard';
-import type { Doctor } from '../types';
+import { Doctor, UserRole } from '../types';
+import { db } from '../services/firebase';
+import { collection, getDocs, query, where } from 'firebase/firestore';
 
 const DoctorsPage: React.FC = () => {
   const [hospitalFilter, setHospitalFilter] = useState('All');
   const [specialtyFilter, setSpecialtyFilter] = useState('All');
+  const [dynamicDoctors, setDynamicDoctors] = useState<Doctor[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const hospitals = useMemo(() => ['All', ...Array.from(new Set(DOCTORS.map(d => d.hospital)))], []);
-  const specialties = useMemo(() => ['All', ...Array.from(new Set(DOCTORS.map(d => d.specialty)))], []);
+  // Helper to normalize lookups
+  const normalizeDoctorName = (name: string) => name.replace(/^\s*dr\.?\s*/i, '').replace(/\s+/g, ' ').trim();
+  const displayDoctorName = (name: string) => `Dr. ${normalizeDoctorName(name)}`;
+
+  useEffect(() => {
+    const fetchDynamicDoctors = async () => {
+      try {
+        const q = query(collection(db, 'users'), where('role', '==', UserRole.DOCTOR));
+        const snap = await getDocs(q);
+        const docs = snap.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.fullName || 'Doctor',
+            specialty: data.specialty || 'General',
+            hospital: data.hospital || 'SHMS',
+            imageUrl: data.imageUrl || '/images/doctors/default.svg',
+            contact: data.email || 'N/A',
+            ...data
+          } as Doctor;
+        });
+        setDynamicDoctors(docs);
+      } catch (err) {
+        console.error("Error fetching dynamic doctors:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchDynamicDoctors();
+  }, []);
+
+  const combinedDoctors = useMemo(() => {
+    const constantDocs = DOCTORS.map(d => ({
+      ...d,
+      id: String(d.id), // Stringify for universal compatibility
+      name: displayDoctorName(d.name)
+    })) as Doctor[];
+
+    // Simple deduplication by normalized name and hospital
+    const map = new Map<string, Doctor>();
+    [...dynamicDoctors, ...constantDocs].forEach(d => {
+      const key = `${normalizeDoctorName(d.name).toLowerCase()}|${d.hospital.toLowerCase()}`;
+      if (!map.has(key)) map.set(key, d);
+    });
+    
+    return Array.from(map.values());
+  }, [dynamicDoctors]);
+
+  const hospitals = useMemo(() => ['All', ...Array.from(new Set(combinedDoctors.map(d => d.hospital)))], [combinedDoctors]);
+  const specialties = useMemo(() => ['All', ...Array.from(new Set(combinedDoctors.map(d => d.specialty)))], [combinedDoctors]);
 
   const filteredDoctors = useMemo(() => {
-    return DOCTORS.filter(doctor => {
+    return combinedDoctors.filter(doctor => {
       const hospitalMatch = hospitalFilter === 'All' || doctor.hospital === hospitalFilter;
       const specialtyMatch = specialtyFilter === 'All' || doctor.specialty === specialtyFilter;
       return hospitalMatch && specialtyMatch;
     });
-  }, [hospitalFilter, specialtyFilter]);
+  }, [combinedDoctors, hospitalFilter, specialtyFilter]);
 
   return (
     <div className="space-y-12">
@@ -53,7 +105,12 @@ const DoctorsPage: React.FC = () => {
 
       {/* Doctors Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-        {filteredDoctors.length > 0 ? (
+        {loading ? (
+           <div className="col-span-full py-20 text-center">
+             <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-emerald-600 mx-auto"></div>
+             <p className="mt-4 text-gray-500 font-bold animate-pulse">Gathering Medical Team...</p>
+           </div>
+        ) : filteredDoctors.length > 0 ? (
           filteredDoctors.map(doctor => <DoctorCard key={doctor.id} doctor={doctor} />)
         ) : (
           <p className="text-center col-span-full text-gray-500 dark:text-gray-400">No doctors found matching your criteria.</p>

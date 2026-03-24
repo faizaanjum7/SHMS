@@ -24,7 +24,7 @@ export interface InventoryItem {
 }
 
 export interface Doctor {
-  id: number;
+  id: string | number;
   name: string;
   specialty: string;
   hospital: string;

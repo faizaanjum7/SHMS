@@ -64,17 +64,32 @@ const HospitalDetailsPage: React.FC = () => {
 
   const combinedDoctors = useMemo(() => {
     const map = new Map<string, any>();
-    for (const d of allDoctors) {
+    
+    // Process Dynamic Doctors first (highest priority for latest info)
+    allDoctors.forEach(d => {
       const normalized = normalizeDoctorName(String(d.fullName || ''));
       const key = `${normalized}|${d.hospital}|${d.specialty}`;
       if (!map.has(key)) {
-        map.set(key, { ...d, fullName: displayDoctorName(String(d.fullName || '')) });
+        map.set(key, { 
+          ...d, 
+          id: d.uid, 
+          fullName: displayDoctorName(normalized) 
+        });
       }
-    }
-    for (const d of fallbackDoctors) {
+    });
+
+    // Process Constant Doctors
+    fallbackDoctors.forEach(d => {
       const key = `${d._normalizedName}|${d.hospital}|${d.specialty}`;
-      if (!map.has(key)) map.set(key, d);
-    }
+      if (!map.has(key)) {
+        map.set(key, {
+            ...d,
+            id: String(d.uid), // This is the stringified numeric ID
+            fullName: d.fullName
+        });
+      }
+    });
+
     return Array.from(map.values());
   }, [allDoctors, fallbackDoctors]);
 
@@ -178,7 +193,7 @@ const HospitalDetailsPage: React.FC = () => {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8 px-4">
             {doctorsForHospital.map(d => {
-              const doctorId = d.uid.startsWith('const-') ? d.uid.split('-')[1] : d.uid;
+              const doctorId = d.id;
               const firstName = normalizeDoctorName(String(d.fullName || '')).split(' ')[0].toLowerCase();
               const computedSrc = d.imageUrl || `/images/doctors/${firstName}.jpg`;
               return (

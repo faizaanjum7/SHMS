@@ -32,6 +32,9 @@ const parseTimeToMinutes = (t: string) => {
   return hh * 60 + mm;
 };
 
+const normalizeDoctorName = (name: string) => name.replace(/^\s*dr\.?\s*/i, '').replace(/\s+/g, ' ').trim();
+const displayDoctorName = (name: string) => `Dr. ${normalizeDoctorName(name)}`;
+
 const DoctorDetailsPage: React.FC = () => {
   const { id } = useParams();
   const [doctor, setDoctor] = useState<any | null>(null);
@@ -62,9 +65,10 @@ const DoctorDetailsPage: React.FC = () => {
         if (docSnap.exists()) {
           const data = docSnap.data();
           if (data.role === 'Doctor') {
+            const normalizedName = normalizeDoctorName(data.fullName || 'Doctor');
             setDoctor({
               id: docSnap.id,
-              name: data.fullName || 'Doctor',
+              name: displayDoctorName(normalizedName),
               specialty: data.specialty || 'General Practitioner',
               hospital: data.hospital || 'SHMS Network Hospital',
               imageUrl: data.imageUrl,
@@ -106,8 +110,7 @@ const DoctorDetailsPage: React.FC = () => {
     const q = query(
       appointmentsCollection,
       where("doctorName", "==", doctor.name),
-      where("date", "==", selectedDate),
-      orderBy("appointmentTime")
+      where("date", "==", selectedDate)
     );
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
@@ -115,7 +118,14 @@ const DoctorDetailsPage: React.FC = () => {
         id: docSnap.id,
         ...docSnap.data()
       })) as Appointment[];
+      
+      // Sort in memory to avoid composite index requirements
+      data.sort((a, b) => parseTimeToMinutes(a.appointmentTime) - parseTimeToMinutes(b.appointmentTime));
+      
       setAppointments(data);
+      setLoading(false);
+    }, (error) => {
+      console.error("Appointments query failed:", error);
       setLoading(false);
     });
 
@@ -128,6 +138,8 @@ const DoctorDetailsPage: React.FC = () => {
         setAvgRating(avg);
         setNumReviews(ratings.length);
       }
+    }).catch(err => {
+      console.error("Reviews summary fetch failed:", err);
     });
 
     return () => unsubscribe();
