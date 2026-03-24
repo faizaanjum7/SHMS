@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { HOSPITALS, DOCTORS } from '../constants';
 import { db } from '../services/firebase';
-import { collection, getDocs, query, where } from 'firebase/firestore';
-import { UserRole } from '../types';
+import { collection, getDocs, query, where, onSnapshot } from 'firebase/firestore';
+import { UserRole, Review } from '../types';
+import ReviewSection from '../components/ReviewSection';
 import { useAuth } from '../contexts/AuthContext';
 
 const HospitalDetailsPage: React.FC = () => {
@@ -14,6 +15,8 @@ const HospitalDetailsPage: React.FC = () => {
 
   const [allDoctors, setAllDoctors] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [avgRating, setAvgRating] = useState<string | null>(null);
+  const [numReviews, setNumReviews] = useState(0);
 
   const isMedicalAdminForThisHospital = 
     userProfile?.role === UserRole.MEDICAL_ADMIN && 
@@ -31,7 +34,20 @@ const HospitalDetailsPage: React.FC = () => {
       }
     };
     fetchDoctors();
-  }, []);
+
+    // Fetch Reviews for Rating Summary
+    const reviewsQ = query(collection(db, 'reviews'), where('hospital', '==', hospital?.name));
+    const unsubscribe = onSnapshot(reviewsQ, (snap) => {
+      if (!snap.empty) {
+        const ratings = snap.docs.map(d => (d.data() as Review).hospitalRating);
+        const avg = (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
+        setAvgRating(avg);
+        setNumReviews(ratings.length);
+      }
+    });
+
+    return () => unsubscribe();
+  }, [hospital?.name]);
 
   const normalizeDoctorName = (name: string) => name.replace(/^\s*dr\.?\s*/i, '').replace(/\s+/g, ' ').trim();
   const displayDoctorName = (name: string) => `Dr. ${normalizeDoctorName(name)}`;
@@ -94,6 +110,16 @@ const HospitalDetailsPage: React.FC = () => {
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
                 {hospital.location}
               </p>
+              {avgRating && (
+                <div className="mt-4 flex items-center gap-3 bg-white/10 backdrop-blur-md px-4 py-2 rounded-xl border border-white/20 w-fit">
+                  <div className="flex items-center gap-1">
+                    <span className="text-2xl font-black text-white">{avgRating}</span>
+                    <span className="text-amber-400 text-xl">★</span>
+                  </div>
+                  <div className="w-px h-6 bg-white/20"></div>
+                  <span className="text-sm font-bold opacity-90">{numReviews} Patient Reviews</span>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -186,6 +212,10 @@ const HospitalDetailsPage: React.FC = () => {
         <Link className="px-8 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 shadow-md transition-all" to="/hospitals">
           Explore Other Hospitals
         </Link>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 p-8 md:p-12 rounded-3xl shadow-xl border border-gray-100 dark:border-gray-700">
+        <ReviewSection hospitalName={hospital.name} type="hospital" />
       </div>
     </div>
   );

@@ -2,8 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { DOCTORS } from '../constants';
 import { db } from '../services/firebase';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
-import { Appointment } from '../types';
+import { collection, query, where, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
+import { Appointment, Review } from '../types';
+import ReviewSection from '../components/ReviewSection';
 
 const getTodayDateString = () => {
   const today = new Date();
@@ -38,6 +39,8 @@ const DoctorDetailsPage: React.FC = () => {
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [loading, setLoading] = useState(true);
+  const [avgRating, setAvgRating] = useState<string | null>(null);
+  const [numReviews, setNumReviews] = useState(0);
 
   useEffect(() => {
     if (!doctor) return;
@@ -67,6 +70,17 @@ const DoctorDetailsPage: React.FC = () => {
       })) as Appointment[];
       setAppointments(data);
       setLoading(false);
+    });
+
+    // Fetch Reviews for Rating Summary
+    const reviewsQ = query(collection(db, 'reviews'), where('doctorName', '==', doctor.name));
+    getDocs(reviewsQ).then(snap => {
+      if (!snap.empty) {
+        const ratings = snap.docs.map(d => (d.data() as Review).doctorRating);
+        const avg = (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
+        setAvgRating(avg);
+        setNumReviews(ratings.length);
+      }
     });
 
     return () => unsubscribe();
@@ -140,7 +154,15 @@ const DoctorDetailsPage: React.FC = () => {
             <div className="flex justify-between items-start">
               <div>
                 <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">{doctor.name}</h1>
-                <p className="text-emerald-600 dark:text-emerald-400 text-xl font-medium">{doctor.specialty}</p>
+                <div className="flex items-center gap-2 mt-1">
+                  <p className="text-emerald-600 dark:text-emerald-400 text-xl font-medium">{doctor.specialty}</p>
+                  {avgRating && (
+                    <div className="flex items-center gap-1 bg-amber-50 dark:bg-amber-900/20 px-2 py-0.5 rounded-lg border border-amber-100 dark:border-amber-800/30">
+                      <span className="text-amber-500 font-black text-sm">★ {avgRating}</span>
+                      <span className="text-gray-400 text-[10px] font-bold">({numReviews})</span>
+                    </div>
+                  )}
+                </div>
                 {doctor.field && (
                   <p className="text-gray-500 dark:text-gray-400 mt-1 italic">Focus: {doctor.field}</p>
                 )}
@@ -262,6 +284,10 @@ const DoctorDetailsPage: React.FC = () => {
         <p className="text-gray-600 dark:text-gray-300 leading-relaxed text-lg">
           {doctor.workDescription || `Dr. ${doctor.name.replace(/^\s*dr\.?\s*/i, '')} is a dedicated ${doctor.specialty} specialist at ${doctor.hospital}. With years of clinical experience, they provide comprehensive care for patients with various ${doctor.specialty.toLowerCase()} conditions.`}
         </p>
+      </div>
+
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-3xl shadow-xl border border-gray-100 dark:border-gray-700">
+        <ReviewSection doctorName={doctor.name} type="doctor" />
       </div>
     </div>
   );
