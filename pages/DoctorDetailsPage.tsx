@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { DOCTORS } from '../constants';
 import { db } from '../services/firebase';
-import { collection, query, where, orderBy, onSnapshot, getDocs } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, getDocs, doc, getDoc } from 'firebase/firestore';
 import { Appointment, Review } from '../types';
 import ReviewSection from '../components/ReviewSection';
 
@@ -34,16 +34,63 @@ const parseTimeToMinutes = (t: string) => {
 
 const DoctorDetailsPage: React.FC = () => {
   const { id } = useParams();
-  const doctor = DOCTORS.find(d => d.id === Number(id));
-  
+  const [doctor, setDoctor] = useState<any | null>(null);
+  const [pageLoading, setPageLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState(getTodayDateString());
   const [appointments, setAppointments] = useState<Appointment[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [avgRating, setAvgRating] = useState<string | null>(null);
   const [numReviews, setNumReviews] = useState(0);
 
+  // 1. Initial Doctor Lookup
+  useEffect(() => {
+    const findDoctor = async () => {
+      setPageLoading(true);
+      
+      // Try local constants
+      const localDoctor = DOCTORS.find(d => d.id === Number(id));
+      if (localDoctor) {
+        setDoctor(localDoctor);
+        setPageLoading(false);
+        return;
+      }
+
+      // Try Firestore
+      try {
+        const docRef = doc(db, 'users', id!);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data.role === 'Doctor') {
+            setDoctor({
+              id: docSnap.id,
+              name: data.fullName || 'Doctor',
+              specialty: data.specialty || 'General Practitioner',
+              hospital: data.hospital || 'SHMS Network Hospital',
+              imageUrl: data.imageUrl,
+              contact: data.email || 'N/A',
+              field: data.field,
+              workDescription: data.workDescription,
+              availability: data.availability,
+              schedule: data.schedule,
+              assistantContact: data.assistantContact
+            });
+          }
+        }
+      } catch (err) {
+        console.error("Error fetching doctor details:", err);
+      } finally {
+        setPageLoading(false);
+      }
+    };
+
+    findDoctor();
+  }, [id]);
+
+  // 2. Data Fetching (only when doctor is found)
   useEffect(() => {
     if (!doctor) return;
+    setLoading(true);
 
     const appointmentsCollection = collection(db, "appointments");
     // We use the doctor's name or ID for filtering. Since DOCTORS constants use number IDs, 
@@ -118,11 +165,24 @@ const DoctorDetailsPage: React.FC = () => {
     return { type: 'available', message: 'Currently Available' };
   }, [appointments, selectedDate]);
 
+  if (pageLoading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-4 border-emerald-600"></div>
+        <p className="text-gray-500 font-bold animate-pulse uppercase tracking-widest text-xs">Locating Medical Expert...</p>
+      </div>
+    );
+  }
+
   if (!doctor) {
     return (
-      <div className="text-center py-20">
-        <h1 className="text-3xl font-bold text-gray-800 dark:text-gray-100">Doctor not found</h1>
-        <Link to="/doctors" className="text-emerald-600 mt-4 inline-block hover:underline">Back to all doctors</Link>
+      <div className="text-center py-20 px-4">
+        <div className="text-6xl mb-6">👨‍⚕️❓</div>
+        <h1 className="text-4xl font-black text-gray-800 dark:text-gray-100 tracking-tight">Expert Not Found</h1>
+        <p className="text-gray-500 dark:text-gray-400 mt-2 max-w-md mx-auto">We couldn't find the doctor you're looking for. They may have been moved or their profile is temporarily unavailable.</p>
+        <Link to="/doctors" className="mt-8 inline-flex items-center gap-2 px-6 py-3 bg-emerald-600 text-white font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-200 dark:shadow-none">
+          &larr; Discover Other Experts
+        </Link>
       </div>
     );
   }
