@@ -29,6 +29,11 @@ const BookingPage: React.FC = () => {
     reasonForVisit: '',
     visitType: 'OPD' as 'OPD' | 'Surgery' | 'Emergency',
     bedBooking: false,
+    previousPrescriptions: '',
+    reports: '',
+    wheelchairSupport: false,
+    languagePreference: '',
+    specificDoctorPreference: '',
   });
   const [errors, setErrors] = useState<{ [key: string]: string }>({});
 
@@ -178,6 +183,13 @@ const BookingPage: React.FC = () => {
             status: 'Confirmed',
             createdAt: serverTimestamp(),
             waitTimeUpdatedAt: new Date().toISOString(),
+            previousPrescriptions: bookingDetails.previousPrescriptions || null,
+            reports: bookingDetails.reports || null,
+            specialRequests: {
+                wheelchairSupport: bookingDetails.wheelchairSupport,
+                languagePreference: bookingDetails.languagePreference || null,
+                specificDoctorPreference: bookingDetails.specificDoctorPreference || null,
+            },
         };
 
         await addDoc(collection(db, 'appointments'), appointmentData);
@@ -198,8 +210,10 @@ const BookingPage: React.FC = () => {
   const commonLabelClasses = "block text-sm font-medium text-gray-700 dark:text-gray-300";
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setBookingDetails(prev => ({...prev, [name]: value}));
+    const { name, value, type } = e.target as HTMLInputElement;
+    const val = type === 'checkbox' ? (e.target as HTMLInputElement).checked : value;
+    
+    setBookingDetails(prev => ({...prev, [name]: val}));
     if(errors[name]) {
       setErrors(prev => ({...prev, [name]: ''}));
     }
@@ -329,7 +343,25 @@ const BookingPage: React.FC = () => {
                   <label className={commonLabelClasses}>Time Slot <span className="text-red-500">*</span></label>
                   <select name="appointmentTime" className={commonInputClasses} value={bookingDetails.appointmentTime} onChange={handleChange}>
                     <option value="">Select a time</option>
-                    {APPOINTMENT_TIME_SLOTS.map(time => <option key={time} value={time}>{time}</option>)}
+                    {APPOINTMENT_TIME_SLOTS.filter(time => {
+                        if (bookingDetails.date !== new Date().toISOString().split("T")[0]) return true;
+                        
+                        // Parse slot time
+                        const [hoursStr, minutesStr, meridiem] = time.match(/(\d+):(\d+)\s*([AP]M)/i)?.slice(1) || [];
+                        let hours = parseInt(hoursStr, 10);
+                        const minutes = parseInt(minutesStr, 10);
+                        if (meridiem?.toUpperCase() === 'PM' && hours !== 12) hours += 12;
+                        if (meridiem?.toUpperCase() === 'AM' && hours === 12) hours = 0;
+                        
+                        const slotTime = new Date();
+                        slotTime.setHours(hours, minutes, 0, 0);
+                        
+                        // Add 5 min buffer to current time
+                        const nowWithBuffer = new Date();
+                        nowWithBuffer.setMinutes(nowWithBuffer.getMinutes() + 5);
+                        
+                        return slotTime > nowWithBuffer;
+                    }).map(time => <option key={time} value={time}>{time}</option>)}
                   </select>
                   {errors.appointmentTime && <p className="text-sm text-red-500 mt-1">{errors.appointmentTime}</p>}
                 </div>
@@ -373,6 +405,49 @@ const BookingPage: React.FC = () => {
                 <label className={commonLabelClasses}>Reason for Visit <span className="text-red-500">*</span></label>
                 <textarea name="reasonForVisit" rows={3} placeholder="Briefly describe your symptoms or reason for visit..." className={commonInputClasses} value={bookingDetails.reasonForVisit} onChange={handleChange} />
                 {errors.reasonForVisit && <p className="text-sm text-red-500 mt-1">{errors.reasonForVisit}</p>}
+              </div>
+
+              <div className="border-t border-gray-100 dark:border-gray-700 pt-4 mt-6">
+                <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">Additional Information (Optional)</h3>
+                <div className="space-y-4">
+                  <div>
+                    <label className={commonLabelClasses}>Previous Prescriptions</label>
+                    <input name="previousPrescriptions" type="text" placeholder="Link or reference to previous prescriptions" className={commonInputClasses} value={bookingDetails.previousPrescriptions} onChange={handleChange} />
+                  </div>
+                  <div>
+                    <label className={commonLabelClasses}>Reports (X-rays, blood tests, etc.)</label>
+                    <input name="reports" type="text" placeholder="Link or reference to medical reports" className={commonInputClasses} value={bookingDetails.reports} onChange={handleChange} />
+                  </div>
+                </div>
+              </div>
+
+              <div className="border-t border-gray-100 dark:border-gray-700 pt-4 mt-6">
+                <h3 className="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">Special Requests</h3>
+                <div className="space-y-4">
+                  <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg border border-gray-100 dark:border-gray-600">
+                    <input 
+                        name="wheelchairSupport" 
+                        type="checkbox" 
+                        id="wheelchairSupport"
+                        className="h-5 w-5 text-emerald-600 focus:ring-emerald-500 border-gray-300 rounded" 
+                        checked={bookingDetails.wheelchairSupport} 
+                        onChange={handleChange} 
+                    />
+                    <label htmlFor="wheelchairSupport" className="text-sm font-medium text-gray-700 dark:text-gray-300 cursor-pointer">
+                        Require Wheelchair Support
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className={commonLabelClasses}>Language Preference</label>
+                      <input name="languagePreference" type="text" placeholder="e.g. English, Hindi" className={commonInputClasses} value={bookingDetails.languagePreference} onChange={handleChange} />
+                    </div>
+                    <div>
+                      <label className={commonLabelClasses}>Specific Doctor Preference</label>
+                      <input name="specificDoctorPreference" type="text" placeholder="Any specific doctor details" className={commonInputClasses} value={bookingDetails.specificDoctorPreference} onChange={handleChange} />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

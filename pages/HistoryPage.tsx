@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { Appointment } from '../types';
 import CancelAppointmentModal from '../components/CancelAppointmentModal';
 import LeaveReviewModal from '../components/LeaveReviewModal';
-import { getDecayedWaitTime } from '../utils/wait-time-utils';
+import { getDecayedWaitTime, parseDateTime } from '../utils/wait-time-utils';
 import { getTodayDateString } from '../utils/date-utils';
 import { createNotification } from '../services/NotificationService';
 import { HOSPITALS } from '../constants';
@@ -72,10 +72,12 @@ const HistoryPage: React.FC = () => {
         const checkAndNotify = async () => {
             const today = getTodayDateString();
             for (const app of appointments) {
-                // Only notify for today's confirmed appointments that hit 0 wait time
+                // Only notify for today's confirmed appointments that hit 0 wait time AND the appointment time has been reached
                 if (app.status === 'Confirmed' && app.date === today && !app.notified0Min) {
+                    const appointmentDate = parseDateTime(app.date, app.appointmentTime);
                     const wait = getDecayedWaitTime(app, currentTime);
-                    if (wait === 0) {
+                    
+                    if (wait === 0 && currentTime >= appointmentDate) {
                         try {
                             // 1. Create the notification in Firestore
                             await createNotification({
@@ -103,10 +105,16 @@ const HistoryPage: React.FC = () => {
     }, [currentTime, appointments, currentUser]);
 
     const computeWaitTime = (app: Appointment) => {
-        const wait = getDecayedWaitTime(app, currentTime);
-        
-        // Show wait time if it's for today and confirmed
-        return (app.date === getTodayDateString() && app.status === 'Confirmed') ? wait : null;
+        const today = getTodayDateString();
+        if (app.status !== 'Confirmed' || app.date !== today) return null;
+
+        // Check if appointment time has been reached
+        const appointmentDate = parseDateTime(app.date, app.appointmentTime);
+        if (currentTime < appointmentDate && !app.receptionistWaitTimeOverride) {
+            return 'Upcoming';
+        }
+
+        return getDecayedWaitTime(app, currentTime);
     };
 
     const getHospitalId = (name: string) => {
@@ -188,12 +196,12 @@ const HistoryPage: React.FC = () => {
                 <div className="grid gap-6">
                     {appointments.map(app => {
                         const isCancellable = app.status === 'Confirmed' && new Date(app.date) >= new Date(new Date().toDateString());
-                        const waitTime = computeWaitTime(app);
+                        const waitStatus = computeWaitTime(app);
                         const hospitalId = getHospitalId(app.hospital);
                         
                         return (
                             <div key={app.id} className="group bg-white dark:bg-gray-800 p-6 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 hover:shadow-2xl hover:border-emerald-500/30 transition-all duration-300 relative overflow-hidden">
-                                {waitTime !== null && (
+                                {typeof waitStatus === 'number' && (
                                     <div className="absolute top-0 right-0 p-2">
                                         <div className="flex h-2 w-2 relative">
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -224,32 +232,77 @@ const HistoryPage: React.FC = () => {
                                     </div>
                                 </div>
 
-                                {waitTime !== null && (
+                                {waitStatus !== null && (
                                     <div className="mt-6 p-5 bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-900/20 dark:to-teal-900/20 rounded-2xl border border-emerald-100/50 dark:border-emerald-800/30 flex items-center justify-between">
                                         <div>
-                                            <p className="text-[10px] uppercase font-black tracking-widest text-emerald-600 dark:text-emerald-400">Current Live Queue Wait</p>
+                                            <p className="text-[10px] uppercase font-black tracking-widest text-emerald-600 dark:text-emerald-400">
+                                                {waitStatus === 'Upcoming' ? 'Ready Status' : 'Current Live Queue Wait'}
+                                            </p>
                                             <div className="flex items-baseline gap-1">
-                                                <span className="text-4xl font-black text-emerald-800 dark:text-emerald-200 tabular-nums">{waitTime}</span>
-                                                <span className="text-emerald-600 dark:text-emerald-400 font-bold">min</span>
+                                                {waitStatus === 'Upcoming' ? (
+                                                    <span className="text-2xl font-black text-emerald-800 dark:text-emerald-200">Upcoming</span>
+                                                ) : (
+                                                    <>
+                                                        <span className="text-4xl font-black text-emerald-800 dark:text-emerald-200 tabular-nums">{waitStatus}</span>
+                                                        <span className="text-emerald-600 dark:text-emerald-400 font-bold">min</span>
+                                                    </>
+                                                )}
                                             </div>
                                         </div>
                                         <div className="flex flex-col items-end gap-2">
-                                            {app.receptionistWaitTimeOverride !== undefined && (
+                                            {app.receptionistWaitTimeOverride !== undefined && waitStatus !== 'Upcoming' && (
                                                 <span className="text-[9px] bg-amber-500 text-white px-2 py-1 rounded-md font-black uppercase tracking-tighter">
                                                     Manual Override
                                                 </span>
                                             )}
-                                            <p className="text-[10px] text-emerald-600/60 dark:text-emerald-400/60 italic">Refreshing live...</p>
+                                            <p className="text-[10px] text-emerald-600/60 dark:text-emerald-400/60 italic">
+                                                {waitStatus === 'Upcoming' ? 'Awaiting start time' : 'Refreshing live...'}
+                                            </p>
                                         </div>
                                     </div>
                                 )}
 
                                 <div className="mt-6 pt-6 border-t border-gray-100 dark:border-gray-700/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                                    <div className="flex-1">
+                                    <div className="flex-1 space-y-3">
                                         {app.reasonForVisit && (
-                                            <p className="text-sm text-gray-600 dark:text-gray-400 line-clamp-1">
+                                            <p className="text-sm text-gray-600 dark:text-gray-400">
                                                 <span className="font-bold text-gray-400 dark:text-gray-500">Reason:</span> {app.reasonForVisit}
                                             </p>
+                                        )}
+                                        
+                                        {app.preparationTips && (
+                                            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800/50 p-4 rounded-xl">
+                                                <p className="text-xs font-black uppercase text-amber-600 dark:text-amber-400 tracking-wider mb-1 flex items-center gap-1">
+                                                    <span>📝</span> Preparation Instructions
+                                                </p>
+                                                <p className="text-sm text-amber-900 dark:text-amber-200 font-medium">
+                                                    {app.preparationTips}
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {(app.specialRequests || app.previousPrescriptions || app.reports) && (
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+                                                {app.specialRequests && (
+                                                    <div className="space-y-1">
+                                                        <p className="font-bold text-gray-400 uppercase tracking-tighter">Special Requests</p>
+                                                        <ul className="list-disc list-inside text-gray-600 dark:text-gray-400">
+                                                            {app.specialRequests.wheelchairSupport && <li>Wheelchair Support</li>}
+                                                            {app.specialRequests.languagePreference && <li>Language: {app.specialRequests.languagePreference}</li>}
+                                                            {app.specialRequests.specificDoctorPreference && <li>Doctor Preference: {app.specialRequests.specificDoctorPreference}</li>}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                                {(app.previousPrescriptions || app.reports) && (
+                                                    <div className="space-y-1">
+                                                        <p className="font-bold text-gray-400 uppercase tracking-tighter">Additional Info</p>
+                                                        <ul className="list-disc list-inside text-gray-600 dark:text-gray-400">
+                                                            {app.previousPrescriptions && <li className="truncate">Prescription: {app.previousPrescriptions}</li>}
+                                                            {app.reports && <li className="truncate">Reports: {app.reports}</li>}
+                                                        </ul>
+                                                    </div>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
                                     <div className="flex items-center gap-3">

@@ -90,6 +90,17 @@ export interface Appointment {
   waitTimeUpdatedAt?: string; // ISO timestamp of when the wait time was last set/predicted
   notified0Min?: boolean; // Whether the patient has been notified when wait time hit 0
   reviewed?: boolean; // Whether the patient has left a review
+  // Optional Additional Info
+  previousPrescriptions?: string;
+  reports?: string;
+  // Special Requests
+  specialRequests?: {
+    wheelchairSupport: boolean;
+    languagePreference?: string;
+    specificDoctorPreference?: string;
+  };
+  // Preparation instructions
+  preparationTips?: string;
 }
 
 export interface Notification {

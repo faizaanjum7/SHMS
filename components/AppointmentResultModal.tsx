@@ -37,6 +37,7 @@ const AppointmentResultModal: React.FC<AppointmentResultModalProps> = ({
   const [visitType, setVisitType] = useState(appointment.visitType || 'OPD');
   const [bedBooking, setBedBooking] = useState(!!appointment.bedBooking);
   const [receptionistWaitTimeOverride, setReceptionistWaitTimeOverride] = useState<number | undefined>(appointment.receptionistWaitTimeOverride);
+  const [preparationTips, setPreparationTips] = useState(appointment.preparationTips || '');
   
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState('');
@@ -78,6 +79,7 @@ const AppointmentResultModal: React.FC<AppointmentResultModalProps> = ({
         receptionistWaitTimeOverride: receptionistWaitTimeOverride !== undefined ? Number(receptionistWaitTimeOverride) : null,
         waitTimeUpdatedAt: new Date().toISOString(),
         notified0Min: false,
+        preparationTips: preparationTips || null,
       };
       
       await updateDoc(appointmentRef, updateData);
@@ -200,6 +202,7 @@ const AppointmentResultModal: React.FC<AppointmentResultModalProps> = ({
         receptionistWaitTimeOverride: receptionistWaitTimeOverride !== undefined ? Number(receptionistWaitTimeOverride) : null,
         waitTimeUpdatedAt: new Date().toISOString(),
         notified0Min: false,
+        preparationTips: preparationTips || null,
       });
       setStatus('Completed');
       setCompletedAtISO(endISO);
@@ -332,6 +335,19 @@ const AppointmentResultModal: React.FC<AppointmentResultModalProps> = ({
               className={commonInputClasses}
               placeholder="Diagnosis, prescription, advice..."
             />
+          </div>
+
+          <div>
+            <label htmlFor="preparationTips" className={commonLabelClasses}>Appointment Preparation Tips (Instructions for Patient)</label>
+            <textarea
+              id="preparationTips"
+              rows={2}
+              value={preparationTips}
+              onChange={(e) => setPreparationTips(e.target.value)}
+              className={commonInputClasses}
+              placeholder="e.g. Do not eat before test, Bring previous reports..."
+            />
+            <p className="text-[11px] text-gray-500 italic mt-1">These instructions will be visible to the patient in their history.</p>
           </div>
 
           <div className="space-y-4 border-t border-gray-100 dark:border-gray-700 pt-6">

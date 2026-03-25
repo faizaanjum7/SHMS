@@ -46,9 +46,23 @@ export const safeParseDate = (d: any): Date | null => {
     return isNaN(date.getTime()) ? null : date;
 };
 
+export const parseDateTime = (dateStr: string, timeStr: string): Date => {
+    const [hoursStr, minutesStr, meridiem] = timeStr.match(/(\d+):(\d+)\s*([AP]M)/i)?.slice(1) || [];
+    let hours = parseInt(hoursStr, 10);
+    const minutes = parseInt(minutesStr, 10);
+    
+    if (meridiem?.toUpperCase() === 'PM' && hours !== 12) hours += 12;
+    if (meridiem?.toUpperCase() === 'AM' && hours === 12) hours = 0;
+    
+    const [year, month, day] = dateStr.split('-').map(Number);
+    return new Date(year, month - 1, day, hours, minutes);
+};
+
 /**
- * Calculates the REAL-TIME wait time for an appointment using absolute timestamps
- * to avoid timezone or hour-wrapping issues.
+ * Calculates the REAL-TIME wait time for an appointment using absolute timestamps.
+ * - If it's a future appointment (on a future date or future time today), 
+ *   it doesn't decay from the creation time.
+ * - Decay should only start once the appointment time is reached OR if a manual override exists.
  */
 export const getDecayedWaitTime = (app: Appointment, now: Date) => {
     const baseWait = (app.receptionistWaitTimeOverride !== undefined && app.receptionistWaitTimeOverride !== null)
@@ -57,19 +71,28 @@ export const getDecayedWaitTime = (app: Appointment, now: Date) => {
 
     if (baseWait === undefined || baseWait === null) return 0;
 
-    // Determine the baseline for decay (either manual update or creation time)
-    const baselineDate = safeParseDate(app.waitTimeUpdatedAt || app.createdAt);
+    const appointmentDate = parseDateTime(app.date, app.appointmentTime);
     
-    if (baselineDate) {
-        const elapsedMs = now.getTime() - baselineDate.getTime();
-        
-        // Convert elapsed ms to full minutes
-        const elapsedMins = Math.floor(elapsedMs / 60000);
-        
-        return Math.max(0, baseWait - Math.max(0, elapsedMins));
+    // If it's a future appointment and NO manual override has been set yet,
+    // we don't start any decay. We assume wait time is "Upcoming".
+    if (now < appointmentDate && (app.receptionistWaitTimeOverride === undefined || app.receptionistWaitTimeOverride === null)) {
+        return baseWait;
     }
 
-    return baseWait;
+    // Baseline for decay:
+    // 1. If receptionist updated it, use that update time.
+    // 2. Otherwise, use the appointment start time as the baseline (decay starts when appt starts).
+    const baselineDate = safeParseDate(app.waitTimeUpdatedAt) || appointmentDate;
+    
+    const elapsedMs = now.getTime() - baselineDate.getTime();
+    
+    // Convert elapsed ms to full minutes
+    const elapsedMins = Math.floor(elapsedMs / 60000);
+    
+    // Only decay if we have actually passed the baseline
+    const decayAmount = Math.max(0, elapsedMins);
+    
+    return Math.max(0, baseWait - decayAmount);
 };
 
 export const calculateWaitTimesForQueue = (appointments: Appointment[], targetDate: string, doctorId: number | string, nowDate: Date): Map<string, number> => {
