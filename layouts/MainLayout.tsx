@@ -5,6 +5,7 @@ import FirebaseConnectionStatus from '../components/FirebaseConnectionStatus';
 import { useAuth } from '../contexts/AuthContext';
 import { UserRole } from '../types';
 import HospitalSelectModal from '../components/HospitalSelectModal';
+import ChatBot from '../components/ChatBot';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -30,6 +31,8 @@ const MainLayout: React.FC<MainLayoutProps> = ({ children }) => {
         currentHospital={userProfile?.hospital}
         onSaved={refreshUserProfile}
       />
+      
+      <ChatBot />
     </div>
   );
 };
