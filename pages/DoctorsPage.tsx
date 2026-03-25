@@ -5,9 +5,14 @@ import { Doctor, UserRole } from '../types';
 import { db } from '../services/firebase';
 import { collection, getDocs, query, where } from 'firebase/firestore';
 
+import { useLocation } from 'react-router-dom';
+
 const DoctorsPage: React.FC = () => {
+  const location = useLocation();
+  const suggestedSpecialty = location.state?.suggestedSpecialty;
+
   const [hospitalFilter, setHospitalFilter] = useState('All');
-  const [specialtyFilter, setSpecialtyFilter] = useState('All');
+  const [specialtyFilter, setSpecialtyFilter] = useState(suggestedSpecialty || 'All');
   const [dynamicDoctors, setDynamicDoctors] = useState<Doctor[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -18,20 +23,29 @@ const DoctorsPage: React.FC = () => {
   useEffect(() => {
     const fetchDynamicDoctors = async () => {
       try {
-        const q = query(collection(db, 'users'), where('role', '==', UserRole.DOCTOR));
-        const snap = await getDocs(q);
-        const docs = snap.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            name: data.fullName || 'Doctor',
-            specialty: data.specialty || 'General',
-            hospital: data.hospital || 'SHMS',
-            imageUrl: data.imageUrl || '/images/doctors/default.svg',
-            contact: data.email || 'N/A',
-            ...data
-          } as Doctor;
-        });
+        // Try fetching from dedicated 'doctors' collection first
+        const docsRef = collection(db, 'doctors');
+        const snap = await getDocs(docsRef);
+        let docs = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Doctor);
+
+        // Fallback or merge with 'users' with role 'Doctor'
+        if (docs.length === 0) {
+          const q = query(collection(db, 'users'), where('role', '==', UserRole.DOCTOR));
+          const userSnap = await getDocs(q);
+          const userDocs = userSnap.docs.map(doc => {
+            const data = doc.data();
+            return {
+              id: doc.id,
+              name: data.fullName || 'Doctor',
+              specialty: data.specialty || 'General',
+              hospital: data.hospital || 'SHMS',
+              imageUrl: data.imageUrl || '/images/doctors/default.svg',
+              contact: data.email || 'N/A',
+              ...data
+            } as Doctor;
+          });
+          docs = userDocs;
+        }
         setDynamicDoctors(docs);
       } catch (err) {
         console.error("Error fetching dynamic doctors:", err);

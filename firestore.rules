@@ -1,0 +1,71 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isRole(role) {
+      return isSignedIn() && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    function isAnyStaff() {
+      return isSignedIn() && (
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Hospital Staff' ||
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Receptionist'
+      );
+    }
+
+    // Doctors Collection Rules
+    match /doctors/{doctorId} {
+      // Anyone signed in can read doctor data
+      allow read: if isSignedIn();
+
+      // Only doctors can update their own profile
+      allow update: if isSignedIn() && request.auth.uid == doctorId;
+
+      // Admin/Staff can create or update doctors
+      allow write: if isRole('Medical Admin') || isAnyStaff();
+    }
+
+    // Symptom Mapping Rules
+    match /symptomMappings/{symptomId} {
+      // Read allowed for all users (including guests)
+      allow read: if true;
+
+      // Only admin can modify mappings
+      allow write: if isRole('Medical Admin');
+    }
+
+    // Appointment Rules
+    match /appointments/{appointmentId} {
+      allow read: if isSignedIn() && (
+        resource.data.patientUid == request.auth.uid || 
+        isRole('Medical Admin') || 
+        isAnyStaff() ||
+        (isSignedIn() && request.auth.uid == resource.data.doctorId)
+      );
+
+      allow create: if isSignedIn() && (
+        (request.resource.data.patientUid == request.auth.uid) &&
+        request.resource.data.appointmentTime > request.time
+      );
+
+      allow update: if isSignedIn() && (
+        request.auth.uid == resource.data.patientUid || 
+        isRole('Medical Admin') || 
+        isAnyStaff() ||
+        request.auth.uid == resource.data.doctorId
+      );
+    }
+    
+    // Existing users collection (assumed)
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn() && request.auth.uid == userId;
+    }
+  }
+}

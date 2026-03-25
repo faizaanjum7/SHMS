@@ -5,8 +5,12 @@ import { useAuth } from '../contexts/AuthContext';
 import { db } from '../services/firebase';
 import { collection, addDoc, serverTimestamp, query, where, getDocs, DocumentData } from 'firebase/firestore';
 import { UserRole } from '../types';
+import { useLocation } from 'react-router-dom';
 
 const BookingPage: React.FC = () => {
+  const location = useLocation();
+  const suggestedSpecialty = location.state?.suggestedSpecialty;
+
   const { currentUser, userProfile } = useAuth();
   const [step, setStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -17,7 +21,7 @@ const BookingPage: React.FC = () => {
 
   const [bookingDetails, setBookingDetails] = useState({
     hospital: '',
-    department: '',
+    department: suggestedSpecialty || '',
     doctorId: '',
     doctorName: '',
     date: '',
@@ -46,21 +50,23 @@ const BookingPage: React.FC = () => {
   useEffect(() => {
     const fetchDoctors = async () => {
         setDoctorsLoading(true);
-        setErrorMessage(''); // Clear previous errors
+        setErrorMessage('');
         try {
-            const doctorsQuery = query(collection(db, "users"), where("role", "==", UserRole.DOCTOR));
-            const querySnapshot = await getDocs(doctorsQuery);
-            const doctorsList = querySnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+            // Fetch from 'doctors' collection primarily
+            const doctorsRef = collection(db, "doctors");
+            const snap = await getDocs(doctorsRef);
+            let doctorsList = snap.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+
+            // Fallback to 'users' if empty
+            if (doctorsList.length === 0) {
+              const doctorsQuery = query(collection(db, "users"), where("role", "==", UserRole.DOCTOR));
+              const querySnapshot = await getDocs(doctorsQuery);
+              doctorsList = querySnapshot.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+            }
             setAllDoctors(doctorsList);
         } catch (error: any) {
             console.error("Failed to fetch doctors:", error);
-            if (error.code === 'permission-denied') {
-                 setErrorMessage("Security Rule Error: Could not load the list of doctors. Your Firestore security rules are preventing access. Please update your rules to allow authenticated users to read documents from the 'users' collection where the role is 'Doctor'.");
-            } else if (error.code === 'failed-precondition') {
-                setErrorMessage("Database Index Missing: An index is required to fetch the list of doctors. Please create a single-field index on the 'role' field in the 'users' collection in your Firestore console.");
-            } else {
-                setErrorMessage("Could not load the list of available doctors. Please refresh the page or check your connection.");
-            }
+            setErrorMessage("Could not load medical experts. Please try again.");
         } finally {
             setDoctorsLoading(false);
         }
@@ -165,6 +171,21 @@ const BookingPage: React.FC = () => {
     setIsLoading(true);
     setErrorMessage('');
     try {
+        // Double booking check
+        const q = query(
+          collection(db, 'appointments'),
+          where('doctorId', '==', bookingDetails.doctorId),
+          where('date', '==', bookingDetails.date),
+          where('appointmentTime', '==', bookingDetails.appointmentTime),
+          where('status', '!=', 'Cancelled')
+        );
+        const snap = await getDocs(q);
+        if (!snap.empty) {
+          setErrorMessage('This slot is already booked. Please select another time or doctor.');
+          setIsLoading(false);
+          return;
+        }
+
         const appointmentData = {
             patientUid: currentUser.uid,
             hospital: bookingDetails.hospital,
@@ -344,9 +365,20 @@ const BookingPage: React.FC = () => {
                   <select name="appointmentTime" className={commonInputClasses} value={bookingDetails.appointmentTime} onChange={handleChange}>
                     <option value="">Select a time</option>
                     {APPOINTMENT_TIME_SLOTS.filter(time => {
+                        const selectedDoctor = combinedDoctors.find(d => d.uid === bookingDetails.doctorId);
+                        
+                        // Check profile-based slots first
+                        if (selectedDoctor?.availableSlots) {
+                          const slot = selectedDoctor.availableSlots.find((s: any) => {
+                            // Convert Firestore Timestamp to YYYY-MM-DD if needed
+                            const slotDate = s.date?.toDate ? s.date.toDate().toISOString().split('T')[0] : s.date;
+                            return slotDate === bookingDetails.date && s.time === time;
+                          });
+                          if (slot && slot.isBooked) return false;
+                        }
+
                         if (bookingDetails.date !== new Date().toISOString().split("T")[0]) return true;
                         
-                        // Parse slot time
                         const [hoursStr, minutesStr, meridiem] = time.match(/(\d+):(\d+)\s*([AP]M)/i)?.slice(1) || [];
                         let hours = parseInt(hoursStr, 10);
                         const minutes = parseInt(minutesStr, 10);
@@ -356,7 +388,6 @@ const BookingPage: React.FC = () => {
                         const slotTime = new Date();
                         slotTime.setHours(hours, minutes, 0, 0);
                         
-                        // Add 5 min buffer to current time
                         const nowWithBuffer = new Date();
                         nowWithBuffer.setMinutes(nowWithBuffer.getMinutes() + 5);
                         

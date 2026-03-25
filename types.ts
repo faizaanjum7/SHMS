@@ -35,6 +35,32 @@ export interface Doctor {
   availability?: string;
   schedule?: string;
   assistantContact?: string;
+  // Enhanced fields
+  availableSlots?: {
+    date: any; // Firestore Timestamp
+    time: string;
+    isBooked: boolean;
+  }[];
+  rating?: number;
+  experience?: number;
+}
+
+export interface SpecialtyWeight {
+  type: string;
+  weight: number;
+}
+
+export interface SymptomMapping {
+  id: string;
+  symptom: string;
+  specialties: SpecialtyWeight[];
+  isEmergency: boolean;
+}
+
+export interface SymptomInput {
+  symptoms: string[];
+  severity: 'mild' | 'moderate' | 'severe';
+  duration: string;
 }
 
 export interface Hospital {
