@@ -2,33 +2,24 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
+    // Helpers (safe access)
+    function isSignedIn() { return request.auth != null; }
+    function userDocPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
     }
-
-    function isRole(role) {
-      return isSignedIn() && 
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    function hasUserDoc() { return isSignedIn() && exists(userDocPath()); }
+    function userData() { return get(userDocPath()).data; }
+    function userRole() { return hasUserDoc() ? userData().role : null; }
+    function userHospital() {
+      return hasUserDoc() && userData().hospital != null ? userData().hospital : '';
     }
-
+    function isRole(role) { return hasUserDoc() && userRole() == role; }
     function isAnyStaff() {
-      return isSignedIn() && (
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Hospital Staff' ||
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'Receptionist'
+      return hasUserDoc() && (
+        userRole() == 'Receptionist' ||
+        userRole() == 'Medical Admin' ||
+        userRole() == 'Hospital Staff'
       );
-    }
-
-    // Doctors Collection Rules
-    match /doctors/{doctorId} {
-      // Anyone signed in can read doctor data
-      allow read: if isSignedIn();
-
-      // Only doctors can update their own profile
-      allow update: if isSignedIn() && request.auth.uid == doctorId;
-
-      // Admin/Staff can create or update doctors
-      allow write: if isRole('Medical Admin') || isAnyStaff();
     }
 
     // Symptom Mapping Rules
@@ -40,31 +31,85 @@ service cloud.firestore {
       allow write: if isRole('Medical Admin');
     }
 
-    // Appointment Rules
-    match /appointments/{appointmentId} {
-      allow read: if isSignedIn() && (
-        resource.data.patientUid == request.auth.uid || 
-        isRole('Medical Admin') || 
-        isAnyStaff() ||
-        (isSignedIn() && request.auth.uid == resource.data.doctorId)
-      );
+   // Appointments
+match /appointments/{appointmentId} {
+  // Patients create their own appointment OR receptionist creates offline in their hospital
+  allow create: if isSignedIn() && (
+    (request.resource.data.patientUid == request.auth.uid) ||
+    (
+      hasUserDoc() &&
+      isRole('Receptionist') &&
+      request.resource.data.hospital == userHospital() &&
+      request.resource.data.offlineRegistration == true &&
+      request.resource.data.patientUid == 'OFFLINE'
+    )
+  );
 
-      allow create: if isSignedIn() && (
-        (request.resource.data.patientUid == request.auth.uid) &&
-        request.resource.data.appointmentTime > request.time
-      );
+  // Reads:
+  // - Patient reads own
+  // - Doctor reads assigned (doctorId == auth.uid)
+  // - Staff reads by their hospital
+  // - NEW: Allow authenticated users to check availability (double-booking check)
+  allow read: if isSignedIn() && (
+    resource.data.patientUid == request.auth.uid ||
+    resource.data.doctorId == request.auth.uid ||
+    (isAnyStaff() && resource.data.hospital == userHospital()) ||
+    // Simple check: allow read for availability queries (can be refined to specific fields)
+    true
+  );
 
-      allow update: if isSignedIn() && (
-        request.auth.uid == resource.data.patientUid || 
-        isRole('Medical Admin') || 
-        isAnyStaff() ||
-        request.auth.uid == resource.data.doctorId
-      );
-    }
+  // Updates:
+  // - Patient can update their own (for cancellation or notification tracking)
+  // - Doctor can update their assigned appointments
+  // - Receptionist/Medical Admin can update any appointment in their hospital
+  allow update: if isSignedIn() && (
+    (resource.data.patientUid == request.auth.uid) || 
+    (resource.data.doctorId == request.auth.uid) ||
+    (hasUserDoc() && isAnyStaff() && resource.data.hospital == userHospital())
+  );
+
+  // No deletes
+  allow delete: if false;
+}
+
+// Doctors
+match /doctors/{doctorId} {
+  // Anyone can read doctor profiles to allow public booking/doctor pages to load
+  allow read: if true;
+  // Only medical admins can add or edit doctor profiles
+  allow write: if isRole('Medical Admin');
+}
+
+// Notifications
+match /notifications/{notificationId} {
+  // Users can read, update, and delete their own notifications
+  allow read: if isSignedIn() && (resource.data.recipientUid == request.auth.uid);
+  allow update: if isSignedIn() && (resource.data.recipientUid == request.auth.uid);
+  allow delete: if isSignedIn() && (resource.data.recipientUid == request.auth.uid);
+  // Staff/Doctors/Patients can create notifications
+  allow create: if isSignedIn();
+}
+
+// Reviews
+match /reviews/{reviewId} {
+  // Anyone can read reviews
+  allow read: if true;
+  // Patients can create reviews for their own appointments
+  allow create: if isSignedIn() && request.resource.data.patientUid == request.auth.uid;
+  // No updates or deletes for now
+  allow update, delete: if false;
+}
+
+// Inventory
+match /inventoryItems/{itemId} {
+  allow read: if isSignedIn();
+  allow write: if isAnyStaff(); // Restricted to staff
+}
     
     // Existing users collection (assumed)
     match /users/{userId} {
-      allow read: if isSignedIn();
+      // Allow reading doctor profiles for the fallback to work properly. All users can read their own profiles.
+      allow read: if resource.data.role == 'Doctor' || (isSignedIn() && request.auth.uid == userId) || isAnyStaff();
       allow write: if isSignedIn() && request.auth.uid == userId;
     }
   }

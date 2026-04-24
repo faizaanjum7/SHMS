@@ -435,14 +435,14 @@ const AdminInventoryPage: React.FC = () => {
       </section>
 
       {showAlertModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-full max-w-lg rounded-lg bg-white dark:bg-gray-800 shadow-xl border dark:border-gray-700">
-            <div className="px-5 py-3 border-b dark:border-gray-700 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg max-h-full flex flex-col rounded-lg bg-white dark:bg-gray-800 shadow-xl border dark:border-gray-700">
+            <div className="px-5 py-3 border-b dark:border-gray-700 flex items-center justify-between shrink-0">
               <h4 className="text-lg font-semibold">Inventory Alerts</h4>
-              <button onClick={() => setShowAlertModal(false)} className="text-sm px-2 py-1 rounded bg-gray-200 dark:bg-gray-700">Close</button>
+              <button onClick={() => setShowAlertModal(false)} className="text-sm px-2 py-1 rounded bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors">Close</button>
             </div>
-            <div className="p-5 space-y-3">
-              <p className="text-sm text-gray-600 dark:text-gray-300">The following items need attention:</p>
+            <div className="p-5 space-y-3 overflow-y-auto min-h-0">
+              <p className="text-sm text-gray-600 dark:text-gray-300 shrink-0">The following items need attention:</p>
               <ul className="list-disc list-inside space-y-1">
                 {alertMessages.map((m, i) => (
                   <li key={i} className="text-sm">{m}</li>
