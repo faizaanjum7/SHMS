@@ -19,7 +19,7 @@ const STATIC_MAPPINGS: SymptomMapping[] = [
   { id: '8', symptom: 'stomach pain', isEmergency: false, specialties: [{ type: 'Gastroenterology', weight: 10 }] },
 ];
 
-export const getDepartmentSuggestion = async (symptoms: string[]): Promise<SuggestionResult> => {
+export const getDepartmentSuggestion = async (symptoms: string[], severity: string = 'mild', duration: string = '1 day'): Promise<SuggestionResult> => {
   console.log(`Getting suggestion for symptoms: ${symptoms.join(', ')}`);
   
   try {
@@ -44,6 +44,19 @@ export const getDepartmentSuggestion = async (symptoms: string[]): Promise<Sugge
 
     symptoms.forEach(s => {
       const sLower = s.toLowerCase().trim();
+
+      // Custom rule for skin allergy
+      if (sLower === 'skin allergy' || sLower.includes('skin allergy')) {
+        const isSevereOrModerate = severity === 'severe' || severity === 'moderate';
+        const isLongDuration = duration !== '1 day';
+        if (isSevereOrModerate && isLongDuration) {
+          scores['Dermatology'] = (scores['Dermatology'] || 0) + 15;
+        } else {
+          scores['General Physician'] = (scores['General Physician'] || 0) + 10;
+        }
+        return;
+      }
+
       const mapping = mappings.find(m => m.symptom.toLowerCase() === sLower || sLower.includes(m.symptom.toLowerCase()));
       if (mapping) {
         if (mapping.isEmergency) isEmergency = true;

@@ -40,7 +40,7 @@ const AIAssistant: React.FC = () => {
     setError('');
     setResult(null);
     try {
-      const res = await getDepartmentSuggestion(finalSymptoms);
+      const res = await getDepartmentSuggestion(finalSymptoms, severity, duration);
       setResult(res);
     } catch (err) {
       setError('Sorry, we could not get a suggestion. Please try again.');
